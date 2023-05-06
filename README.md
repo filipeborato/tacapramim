@@ -9,4 +9,5 @@ This project is a VST plugin to play audio for tests in PluginHost of Juce Frame
 3. Open project with build button in Visual Studio or Xcode
 4. Build
 
-![image](https://user-images.githubusercontent.com/21025394/235505688-7a5bd1ea-d956-4aa2-8f74-7b11e0f7c4db.png)
+![playVstAudio](https://user-images.githubusercontent.com/21025394/236606022-7219d99b-f504-4626-bbfb-ab15923a4ef0.png)
+
