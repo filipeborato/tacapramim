@@ -2,6 +2,12 @@
 
 This project is a VST plugin to play audio for tests in PluginHost of Juce Framework. 
 
+## This project is in Framework Juce 7
+
+``
+version 1.0.0
+``
+
 ### For Building Follow the List:
 
 1. Download the latest version of the Juce framework
