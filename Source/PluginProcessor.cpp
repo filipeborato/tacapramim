@@ -22,12 +22,16 @@ AudioFilePlayerAudioProcessor::AudioFilePlayerAudioProcessor()
                        )
 #endif
 {
+    // Register formats before any potential reader creation on worker threads
     formatManager.registerBasicFormats();
+    // Start background thread if used
     directoryScannerBackgroundThread.startThread();
 }
 
 AudioFilePlayerAudioProcessor::~AudioFilePlayerAudioProcessor()
 {
+    // Ensure background thread stops cleanly
+    directoryScannerBackgroundThread.stopThread(2000);
 }
 
 //==============================================================================
@@ -36,37 +40,13 @@ const juce::String AudioFilePlayerAudioProcessor::getName() const
     return JucePlugin_Name;
 }
 
-bool AudioFilePlayerAudioProcessor::acceptsMidi() const
-{
-   #if JucePlugin_WantsMidiInput
-    return true;
-   #else
-    return false;
-   #endif
-}
+bool AudioFilePlayerAudioProcessor::acceptsMidi() const { return false; }
 
-bool AudioFilePlayerAudioProcessor::producesMidi() const
-{
-   #if JucePlugin_ProducesMidiOutput
-    return true;
-   #else
-    return false;
-   #endif
-}
+bool AudioFilePlayerAudioProcessor::producesMidi() const { return false; }
 
-bool AudioFilePlayerAudioProcessor::isMidiEffect() const
-{
-   #if JucePlugin_IsMidiEffect
-    return true;
-   #else
-    return false;
-   #endif
-}
+bool AudioFilePlayerAudioProcessor::isMidiEffect() const { return false; }
 
-double AudioFilePlayerAudioProcessor::getTailLengthSeconds() const
-{
-    return 0.0;
-}
+double AudioFilePlayerAudioProcessor::getTailLengthSeconds() const { return 0.0; }
 
 int AudioFilePlayerAudioProcessor::getNumPrograms()
 {
@@ -104,6 +84,7 @@ void AudioFilePlayerAudioProcessor::releaseResources()
 {
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
+    transportSource.releaseResources();
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -147,26 +128,59 @@ void AudioFilePlayerAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
     
+    // Pull any newly prepared sources from worker thread (no heavy ops)
     ReferencedTransportSourceData::Ptr ptr;
-    while( fifo.pull(ptr) )
+    while (fifo.pull(ptr)) {}
+    if (ptr != nullptr)
     {
-        ;
-    }
-    
-    if( ptr != nullptr )
-    {
-        pool.add(activeSource);
-        activeSource = ptr;
-        transportSource.stop();
-        transportSource.setSource(activeSource->currentAudioFileSource.get(),
-                                  32768,
-                                  &directoryScannerBackgroundThread,
-                                  activeSource->audioFileSourceSampleRate);
+        pendingSource = ptr;
         sourceHasChanged.set(true);
+    }
+
+    // RT-safe hot swap without allocations or logging
+    if (sourceHasChanged.get() && pendingSource != nullptr)
+    {
+        auto oldActive = activeSource;
+        transportSource.stop();
+        transportSource.setSource(pendingSource->currentAudioFileSource.get(), 0, nullptr,
+                                  pendingSource->audioFileSourceSampleRate);
+        activeSource = pendingSource;
+        pendingSource = nullptr;
+        sourceHasChanged.set(false);
+        pool.add(oldActive);
+    }
+
+    // Handle transport play param via atomic flag, avoid UI-thread transport calls
+    if (auto* playParam = apvts.getRawParameterValue("transportPlay"))
+    {
+        const bool shouldPlay = (*playParam) > 0.5f;
+        const bool wasPlaying = transportIsPlaying.get();
+        if (shouldPlay != wasPlaying)
+        {
+            if (shouldPlay) transportSource.start(); else transportSource.stop();
+            transportIsPlaying.set(shouldPlay);
+        }
     }
     
     AudioSourceChannelInfo asci(&buffer, 0, buffer.getNumSamples());
     transportSource.getNextAudioBlock(asci);
+
+    // Apply pan (equal-power) and gain
+    float gain = 1.0f;
+    float pan = 0.0f;
+    if (auto* g = apvts.getRawParameterValue("gain")) gain = *g;
+    if (auto* p = apvts.getRawParameterValue("pan")) pan = *p;
+
+    const int numSamples = buffer.getNumSamples();
+    const int numCh = juce::jmin(2, buffer.getNumChannels());
+    const float angle = (pan + 1.0f) * (juce::MathConstants<float>::pi * 0.25f);
+    const float lg = std::cos(angle);
+    const float rg = std::sin(angle);
+
+    if (numCh > 0)
+        buffer.applyGain(0, 0, numSamples, gain * lg);
+    if (numCh > 1)
+        buffer.applyGain(1, 0, numSamples, gain * rg);
 }
 
 //==============================================================================
@@ -183,16 +197,11 @@ juce::AudioProcessorEditor* AudioFilePlayerAudioProcessor::createEditor()
 //==============================================================================
 void AudioFilePlayerAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
-    if( activeSource != nullptr )
-    {
+    if (activeSource != nullptr)
         refreshCurrentFileInAPVTS(apvts, activeSource->currentAudioFile);
-        
-        juce::MemoryOutputStream mos(destData, true);
-        apvts.state.writeToStream(mos);
-    }
+
+    juce::MemoryOutputStream mos(destData, true);
+    apvts.state.writeToStream(mos);
 }
 
 void AudioFilePlayerAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
@@ -224,6 +233,12 @@ AudioProcessorValueTreeState::ParameterLayout AudioFilePlayerAudioProcessor::cre
     using namespace Params;
     const auto& paramNames = GetParamNames();
     
+    layout.add(std::make_unique<juce::AudioParameterFloat>("gain", "Gain",
+                                                           juce::NormalisableRange<float>(0.0f, 2.0f, 0.0f, 1.0f), 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>("pan", "Pan",
+                                                           juce::NormalisableRange<float>(-1.0f, 1.0f, 0.0f, 1.0f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterBool>("transportPlay", "Play", false));
+
     return layout;
 }
 //==============================================================================

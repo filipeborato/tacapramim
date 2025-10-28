@@ -200,7 +200,8 @@ struct AudioFormatReaderSourceCreator : juce::Thread
                         }
                         else
                         {
-                            auto options = URL::InputStreamOptions(URL::ParameterHandling::inAddress);
+                            auto options = URL::InputStreamOptions(URL::ParameterHandling::inAddress)
+                                                .withConnectionTimeoutMs(8000);
                             reader.reset(formatManager.createReaderFor (audioURL.createInputStream(options)));
                         }
                         
@@ -218,6 +219,12 @@ struct AudioFormatReaderSourceCreator : juce::Thread
                             releasePool.add(rts);
                             //add it to the transportSourceFifo
                             transportSourceFifo.push(rts);
+                        }
+                        else
+                        {
+                           #if JUCE_DEBUG
+                            DBG("AudioFormatReaderSourceCreator: failed to create reader for URL: " + audioURL.toString(false));
+                           #endif
                         }
                         
                     }
@@ -314,9 +321,20 @@ public:
         if( file.existsAsFile() )
         {
             apvts.state.setProperty("CurrentFile", file.getFullPathName(), nullptr);
+            apvts.state.setProperty("CurrentFileModTime", file.getLastModificationTime().toMilliseconds(), nullptr);
+        }
+        else
+        {
+            auto urlString = currentAudioFile.toString(false);
+            apvts.state.setProperty("CurrentFile", urlString, nullptr);
+            juce::MemoryOutputStream mos;
+            mos << urlString; // write UTF-8 bytes without null terminator
+            auto md5 = juce::MD5(mos.getData(), mos.getDataSize()).toHexString();
+            apvts.state.setProperty("CurrentFileHash", md5, nullptr);
         }
     }
     juce::Atomic<bool> sourceHasChanged { false };
+    ReferencedTransportSourceData::Ptr pendingSource;
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioFilePlayerAudioProcessor)
