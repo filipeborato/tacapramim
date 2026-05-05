@@ -61,15 +61,18 @@ int AudioFilePlayerAudioProcessor::getCurrentProgram()
 
 void AudioFilePlayerAudioProcessor::setCurrentProgram (int index)
 {
+    juce::ignoreUnused (index);
 }
 
 const juce::String AudioFilePlayerAudioProcessor::getProgramName (int index)
 {
+    juce::ignoreUnused (index);
     return {};
 }
 
 void AudioFilePlayerAudioProcessor::changeProgramName (int index, const juce::String& newName)
 {
+    juce::ignoreUnused (index, newName);
 }
 
 //==============================================================================
@@ -115,6 +118,7 @@ bool AudioFilePlayerAudioProcessor::isBusesLayoutSupported (const BusesLayout& l
 
 void AudioFilePlayerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
+    juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
@@ -229,10 +233,7 @@ void AudioFilePlayerAudioProcessor::setStateInformation (const void* data, int s
 AudioProcessorValueTreeState::ParameterLayout AudioFilePlayerAudioProcessor::createParameterLayout()
 {
     AudioProcessorValueTreeState::ParameterLayout layout;
-    
-    using namespace Params;
-    const auto& paramNames = GetParamNames();
-    
+
     layout.add(std::make_unique<juce::AudioParameterFloat>("gain", "Gain",
                                                            juce::NormalisableRange<float>(0.0f, 2.0f, 0.0f, 1.0f), 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>("pan", "Pan",
