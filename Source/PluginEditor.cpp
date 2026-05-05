@@ -356,33 +356,33 @@ void AudioFilePlayerAudioProcessorEditor::changeListenerCallback (ChangeBroadcas
 
 void AudioFilePlayerAudioProcessorEditor::timerCallback()
 {
-    if( audioProcessor.sourceHasChanged.compareAndSetBool(false, true) )
-    {
-        auto& src = audioProcessor.activeSource; //a local copy.  causes a data race, which is weird because activeSource is reference counted, and the reference counting is atomic..
-        bool hasValidSource = src.get() != nullptr;
-        if( hasValidSource )
-        {
-            if( src.get() != activeSource.get() )
-            {
-                //we have a new source!
-                //update the file path in the APVTS.
-                //update the thumbnail.
-                AudioFilePlayerAudioProcessor::refreshCurrentFileInAPVTS(audioProcessor.apvts, src->currentAudioFile);
-                activeSource = src;
-                
-                zoomSlider.setValue (0, dontSendNotification);
-            
-                thumbnail->setURL (activeSource->currentAudioFile);
-            }
-        }
+    // Drain the one-shot notification flag set by the audio thread.
+    audioProcessor.sourceHasChanged.compareAndSetBool (false, true);
 
-        startStopButton.setEnabled( hasValidSource );
+    // Compare the audio thread's active source against our last seen pointer.
+    // Reference-counted Ptr assignment is not torn-safe, but the original
+    // architecture already accepted that trade-off (see comment in the .h).
+    auto& src = audioProcessor.activeSource;
+    const bool hasValidSource = src.get() != nullptr;
+
+    if (hasValidSource && src.get() != activeSource.get())
+    {
+        AudioFilePlayerAudioProcessor::refreshCurrentFileInAPVTS (audioProcessor.apvts, src->currentAudioFile);
+        activeSource = src;
+
+        zoomSlider.setValue (0, dontSendNotification);
+        thumbnail->setURL (activeSource->currentAudioFile);
     }
-    
-    //update the startStopButton
+    else if (! hasValidSource && activeSource.get() != nullptr)
+    {
+        activeSource = nullptr;
+    }
+
+    startStopButton.setEnabled (hasValidSource);
+
     auto isPlaying = audioProcessor.transportSource.isPlaying();
-    if( audioProcessor.transportSource.getTotalLength() > 0 )
-        startStopButton.setButtonText( ! isPlaying ? "Start" : "Stop" );
-    
-    startStopButton.setToggleState(isPlaying, dontSendNotification);
+    if (audioProcessor.transportSource.getTotalLength() > 0)
+        startStopButton.setButtonText (! isPlaying ? "Start" : "Stop");
+
+    startStopButton.setToggleState (isPlaying, dontSendNotification);
 }

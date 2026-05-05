@@ -132,17 +132,16 @@ void AudioFilePlayerAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
     
-    // Pull any newly prepared sources from worker thread (no heavy ops)
+    // Pull any newly prepared sources from worker thread (no heavy ops).
+    // Keep only the most recent one — older pending entries fall into the pool.
     ReferencedTransportSourceData::Ptr ptr;
     while (fifo.pull(ptr)) {}
     if (ptr != nullptr)
-    {
         pendingSource = ptr;
-        sourceHasChanged.set(true);
-    }
 
-    // RT-safe hot swap without allocations or logging
-    if (sourceHasChanged.get() && pendingSource != nullptr)
+    // RT-safe hot swap without allocations or logging.
+    // sourceHasChanged is one-shot: set here, cleared by the editor's timer.
+    if (pendingSource != nullptr)
     {
         auto oldActive = activeSource;
         transportSource.stop();
@@ -150,7 +149,7 @@ void AudioFilePlayerAudioProcessor::processBlock (juce::AudioBuffer<float>& buff
                                   pendingSource->audioFileSourceSampleRate);
         activeSource = pendingSource;
         pendingSource = nullptr;
-        sourceHasChanged.set(false);
+        sourceHasChanged.set(true);
         pool.add(oldActive);
     }
 
