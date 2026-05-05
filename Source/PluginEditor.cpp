@@ -217,7 +217,7 @@ audioProcessor (p),
 directoryList(nullptr, audioProcessor.directoryScannerBackgroundThread)
 {
     addAndMakeVisible (zoomLabel);
-    zoomLabel.setFont (Font (15.00f, Font::plain));
+    zoomLabel.setFont (Font (FontOptions (15.00f, Font::plain)));
     zoomLabel.setJustificationType (Justification::centredRight);
     zoomLabel.setEditable (false, false, false);
     zoomLabel.setColour (TextEditor::textColourId, Colours::black);
@@ -235,7 +235,7 @@ directoryList(nullptr, audioProcessor.directoryScannerBackgroundThread)
     fileTreeComp.addListener (this);
     
     addAndMakeVisible (explanation);
-    explanation.setFont (Font (14.00f, Font::plain));
+    explanation.setFont (Font (FontOptions (14.00f, Font::plain)));
     explanation.setJustificationType (Justification::bottomRight);
     explanation.setEditable (false, false, false);
     explanation.setColour (TextEditor::textColourId, Colours::black);
